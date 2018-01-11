@@ -114,6 +114,9 @@ static uint32_t last_vout_setting;
 static uint32_t last_ilimit_setting;
 static bool     last_tft_inv_setting;
 
+/** The device name is hardcoded here... */
+char*    device_name = "opendps";
+
 /** Our parameter storage */
 static past_t g_past;
 

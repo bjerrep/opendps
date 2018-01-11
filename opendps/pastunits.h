@@ -34,6 +34,7 @@ typedef enum {
     /** stored as strings */
     past_boot_git_hash,
     past_app_git_hash,
+    past_device_name,
     /** A past unit who's precense indicates we have a non finished upgrade and
     must not boot */
     past_upgrade_started = 0xff

@@ -50,7 +50,6 @@ import time
 from uhej import uhej
 from protocol import *
 import uframe
-import binascii
 try:
     from PyCRC.CRCCCITT import CRCCCITT
 except:
@@ -58,6 +57,10 @@ except:
     print(" sudo pip install pycrc")
     raise SystemExit()
 import json
+
+DEVICE_NAME_MAX_LEN = 20
+DEVICE_NAME_FILE = "device_names.json"
+
 
 """
 A abstract class that describes a comminucation interface
@@ -161,19 +164,32 @@ class udp_interface(comm_interface):
         try:
             d = self._socket.recvfrom(1000)
             reply = bytearray(d[0])
-            addr = d[1]
         except socket.timeout:
             pass
         except socket.error:
             pass
         return reply
 
+
+"""
+A class that describes a logical name interface (for an udp interface)
+"""
+class device_name_interface(udp_interface):
+    def __init__(self, device_name, args):
+        # check if a working ip can be found in the cache file, if not raise an exception
+        _json = json.load(open(DEVICE_NAME_FILE))
+        self._if_name = _json[device_name]
+        result = communicate(self, create_name(), args, False)
+        if result["device_name"] != device_name:
+            raise Exception("rescan needed")
+
+
 """
 Print error message and exit with error
 """
 def fail(message):
-        print("Error: %s." % (message))
-        sys.exit(1)
+    print("Error: %s" % (message))
+    sys.exit(1)
 
 
 """
@@ -193,8 +209,8 @@ def handle_response(command, frame, args):
 
     if args.json:
         _json = {}
-        _json["cmd"] = resp_command;
-        _json["status"] = 1; # we're here aren't we?
+        _json["cmd"] = resp_command
+        _json["status"] = 1 # we're here aren't we?
 
     if resp_command == cmd_status:
         v_in, v_out_setting, v_out, i_out, i_limit, power_enabled = unpack_status_response(frame)
@@ -208,18 +224,21 @@ def handle_response(command, frame, args):
         i_lim_str = "%d.%03d" % (i_limit/1000, i_limit%1000)
         i_out_str = "%d.%03d" % (i_out/1000, i_out%1000)
         if args.json:
-            _json["V_in"] = v_in_str;
-            _json["V_out"] = v_out_str;
-            _json["V_set"] = v_set_str;
-            _json["I_lim"] = i_lim_str;
-            _json["I_out"] = i_out_str;
-            _json["enable"] = power_enabled;
+            _json["V_in"] = v_in_str
+            _json["V_out"] = v_out_str
+            _json["V_set"] = v_set_str
+            _json["I_lim"] = i_lim_str
+            _json["I_out"] = i_out_str
+            _json["enable"] = power_enabled
         else:
             print("V_in  : %s V" % (v_in_str))
             print("V_set : %s V" % (v_set_str))
             print("V_out : %s V (%s)" % (v_out_str, enable_str))
             print("I_lim : %s A" % (i_lim_str))
             print("I_out : %s A" % (i_out_str))
+    elif resp_command == cmd_name:
+        name = unpack_name_response(frame)
+        ret_dict["device_name"] = name
     elif resp_command == cmd_upgrade_start:
     #  *  DPS BL: [cmd_response | cmd_upgrade_start] [<upgrade_status_t>] [<chunk_size:16>]
         cmd = frame.unpack8()
@@ -234,15 +253,14 @@ def handle_response(command, frame, args):
 
     if args.json:
         print(json.dumps(_json, indent=4, sort_keys=True))
- 
+
     return ret_dict
 
 """
 Communicate with the DPS device according to the user's whishes
 """
-def communicate(comms, frame, args):
+def communicate(comms, frame, args, exit_on_error=True):
     bytes = frame.get_frame()
-
     if not comms:
         fail("no communication interface specified")
     if not comms.open():
@@ -254,7 +272,10 @@ def communicate(comms, frame, args):
         fail("write failed on %s" % (comms.name()))
     resp = comms.read()
     if len(resp) == 0:
-        fail("timeout talking to device %s" % (comms._if_name))
+        if exit_on_error:
+            fail("timeout talking to device %s" % comms._if_name)
+        else:
+            raise Exception("timeout")
     elif args.verbose:
         print("RX %d bytes [%s]\n" % (len(resp), " ".join("%02x" % b for b in resp)))
     if not comms.close:
@@ -280,6 +301,11 @@ def handle_commands(args):
     # The ping command
     if args.ping:
         communicate(comms, create_ping(), args)
+
+    # The name command
+    if args.name:
+        ret = communicate(comms, create_name(), args, False)
+        print(ret["device_name"])
 
     # The upgrade
     if args.firmware:
@@ -328,6 +354,9 @@ def is_ip_address(if_name):
     except socket.error:
         return False
 
+def is_tty_device(if_name):
+    return "tty" in if_name
+
 # Darn beautiful, from SO: https://stackoverflow.com/a/1035456
 def chunk_from_file(filename, chunk_size):
     with open(filename, "rb") as f:
@@ -343,7 +372,6 @@ Run OpenDPS firmware upgrade
 """
 def run_upgrade(comms, fw_file_name, args):
     with open(fw_file_name, mode='rb') as file:
-        #crc = binascii.crc32(file.read()) % (1<<32)
         content = file.read()
         if content.encode('hex')[6:8] != "20" and not args.force:
             fail("The firmware file does not seem valid, use --force to force upgrade")
@@ -385,6 +413,27 @@ def run_upgrade(comms, fw_file_name, args):
         fail("Device rejected firmware upgrade")
     sys.exit(os.EX_OK)
 
+
+def connect_with_name(name, args):
+    if len(name) > DEVICE_NAME_MAX_LEN:
+        fail("length of name exceeds %d characters" % DEVICE_NAME_MAX_LEN)
+    try:
+        comms = device_name_interface(name, args)
+        return comms
+    except:
+        print("Please wait while scanning for '%s' ..." % name)
+
+        try:
+            name_ip_dict = uhej_scan()
+
+            # rewrite 'DEVICE_NAME_FILE' cache file with names and corresponding ip adresses
+            json.dump(name_ip_dict, open(DEVICE_NAME_FILE, "w"))
+
+            comms = device_name_interface(name, args)
+            return comms
+        except:
+            fail("Couldn't locate '%s', is it online ?" % name)
+
 """
 Create and return a comminications interface object or None if no comms if
 was specified.
@@ -400,11 +449,27 @@ def create_comms(args):
     if if_name != None:
         if is_ip_address(if_name):
             comms = udp_interface(if_name)
-        else:
+        elif is_tty_device(if_name):
             comms = tty_interface(if_name)
+        else:
+            comms = connect_with_name(if_name, args)
     else:
         fail("no comms interface specified")
     return comms
+
+
+def get_device_names(ip_list):
+    result = {}
+    for ip in ip_list:
+        try:
+            args.device = ip
+            comms = create_comms(args)
+            ret = communicate(comms, create_name(), args, False)
+            name = ret["device_name"]
+            result[name] = ip
+        except:
+            print("can't get the name from %s ?" % ip)
+    return result
 
 """
 The worker thread used by uHej for service discovery
@@ -415,22 +480,15 @@ def uhej_worker_thread():
     while 1:
         try:
             data, addr = sock.recvfrom(1024)
-            port = addr[1]
-            addr = addr[0]
+            addr, port = addr
             frame = bytearray(data)
             try:
                 f = uhej.decode_frame(frame)
-                f["source"] = addr
-                f["port"] = port
-                types = ["UDP", "TCP", "mcast"]
                 if uhej.ANNOUNCE == f["frame_type"]:
                     for s in f["services"]:
-                        key = "%s:%s:%s" % (f["source"], s["port"], s["type"])
-                        if not key in discovery_list:
+                        if not addr in discovery_list:
                             if s["service_name"] == "opendps":
-                                discovery_list[key] = True # Keep track of which hosts we have seen
-                                print("%s" % (f["source"]))
-#                            print("%16s:%-5d  %-8s %s" % (f["source"], s["port"], types[s["type"]], s["service_name"]))
+                                discovery_list.append(addr)
             except uhej.IllegalFrameException as e:
                 pass
         except socket.error as e:
@@ -442,7 +500,7 @@ Scan for OpenDPS devices on the local network
 def uhej_scan():
     global discovery_list
     global sock
-    discovery_list = {}
+    discovery_list = []
 
     ANY = "0.0.0.0"
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -450,35 +508,26 @@ def uhej_scan():
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     except AttributeError:
         pass
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 32)
-    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
     sock.bind((ANY, uhej.MCAST_PORT))
 
     thread = threading.Thread(target = uhej_worker_thread)
     thread.daemon = True
     thread.start()
 
-    sock.setsockopt(socket.SOL_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(uhej.MCAST_GRP) + socket.inet_aton(ANY))
+    for i in range(5):
+        f = uhej.query(uhej.UDP, "*")
+        sock.sendto(f, (uhej.MCAST_GRP, uhej.MCAST_PORT))
+        time.sleep(0.2)
 
-    run_time_s = 6 # Run query for this many seconds
-    query_interval_s = 2 # Send query this often
-    last_query = 0
-    start_time = time.time()
-
-    while time.time() - start_time < run_time_s:
-        if time.time() - last_query > query_interval_s:
-            f = uhej.query(uhej.UDP, "*")
-            sock.sendto(f, (uhej.MCAST_GRP, uhej.MCAST_PORT))
-            last_query = time.time()
-        time.sleep(1)
-
+    result = {}
     num_found = len(discovery_list)
     if num_found == 0:
         print("No OpenDPS devices found")
-    elif num_found == 1:
-        print("1 OpenDPS device found")
     else:
-        print("%d OpenDPS devices found" % (num_found))
+        result = get_device_names(discovery_list)
+        for name, ip in list(result.items()):
+            print("'%s' found at %s" % (name, ip))
+    return result
 
 
 """
@@ -489,11 +538,12 @@ def main():
     parser = argparse.ArgumentParser(description='Instrument an OpenDPS device')
 
     parser.add_argument('-d', '--device', help="OpenDPS device to connect to. Can be a /dev/tty device or an IP number. If omitted, dpsctl.py will try the environment variable DPSIF", default='')
-    parser.add_argument('-S', '--scan', action="store_true", help="Scan for OpenDPS wifi devices")
+    parser.add_argument('-S', '--scan', action="store_true", help="Scan for OpenDPS wifi proxies")
     parser.add_argument('-u', '--voltage', type=int, help="Set voltage (millivolt)")
     parser.add_argument('-i', '--current', type=int, help="Set maximum current (milliampere)")
     parser.add_argument('-p', '--power', help="Power 'on' or 'off'")
     parser.add_argument('-P', '--ping', action='store_true', help="Ping device")
+    parser.add_argument('-N', '--name', action='store_true', help="Get device name")
     parser.add_argument('-L', '--lock', action='store_true', help="Lock device keys")
     parser.add_argument('-l', '--unlock', action='store_true', help="Unlock device keys")
     parser.add_argument('-s', '--status', action='store_true', help="Read voltage/current settings and measurements")

@@ -35,6 +35,7 @@ cmd_lock = 7
 cmd_ocp_event = 8
 cmd_upgrade_start = 9
 cmd_upgrade_data = 10
+cmd_name = 11
 cmd_response = 0x80
 
 # wifi_status_t
@@ -111,6 +112,12 @@ def create_status_response(v_in, v_out_setting, v_out, i_out, i_limit, power_ena
     f.end()
     return f
 
+def create_name():
+    f = uFrame()
+    f.pack8(cmd_name)
+    f.end()
+    return f
+
 def create_wifi_status(wifi_status):
     f = uFrame()
     f.pack8(cmd_wifi_status)
@@ -177,6 +184,17 @@ def unpack_status_response(uframe):
     command = uframe.unpack8()
     status = uframe.unpack8()
     return uframe.unpack16(), uframe.unpack16(), uframe.unpack16(), uframe.unpack16(), uframe.unpack16(), uframe.unpack8()
+
+# Returns name
+def unpack_name_response(uframe):
+    command = uframe.unpack8()
+    status = uframe.unpack8()
+    name = ""
+    char = uframe.unpack8()
+    while char:
+        name += chr(char)
+        char = uframe.unpack8()
+    return name
 
 # Returns wifi_status
 def unpack_wifi_status(uframe):

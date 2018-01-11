@@ -47,6 +47,7 @@ typedef enum {
     cmd_ocp_event,
     cmd_upgrade_start,
     cmd_upgrade_data,
+    cmd_get_name,
     cmd_response = 0x80
 } command_t;
 
@@ -96,6 +97,8 @@ uint32_t protocol_create_vout(uint8_t *frame, uint32_t length, uint16_t vout_mv)
 uint32_t protocol_create_ilimit(uint8_t *frame, uint32_t length, uint16_t ilimit_ma);
 uint32_t protocol_create_status(uint8_t *frame, uint32_t length);
 uint32_t protocol_create_status_response(uint8_t *frame, uint32_t length, uint16_t v_in, uint16_t v_out_setting, uint16_t v_out, uint16_t i_out, uint16_t i_limit, uint8_t power_enabled);
+uint32_t protocol_create_name(uint8_t *frame, uint32_t length);
+uint32_t protocol_create_name_response(uint8_t *frame, uint32_t length, char *name);
 uint32_t protocol_create_wifi_status(uint8_t *frame, uint32_t length, wifi_status_t status);
 uint32_t protocol_create_lock(uint8_t *frame, uint32_t length, uint8_t locked);
 uint32_t protocol_create_ocp(uint8_t *frame, uint32_t length, uint16_t i_cut);

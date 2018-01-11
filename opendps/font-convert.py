@@ -24,7 +24,7 @@ def image_size(fname):
 	return (int(width), int(height))
 
 def convert_font(font_fname, font_width_fname, characters, font_size):
-	print "Converting %s to font-%d.c" % (font_fname, font_size)
+	print("Converting %s to font-%d.c" % (font_fname, font_size))
 	glyph_widths = []
 	glyph_sizes = []
 	(width, height) = image_size(font_width_fname)

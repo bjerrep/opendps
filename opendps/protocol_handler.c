@@ -40,6 +40,7 @@
 static uint8_t frame_buffer[FRAME_OVERHEAD(MAX_FRAME_LENGTH)];
 static uint32_t rx_idx = 0;
 static bool receiving_frame = false;
+extern char* device_name;
 
 /**
   * @brief Send a frame on the uart
@@ -104,6 +105,13 @@ static bool handle_status(void)
     uint16_t i_limit = pwrctl_get_ilimit();
     uint8_t power_enabled = pwrctl_vout_enabled();
     uint32_t len = protocol_create_status_response(frame_buffer, sizeof(frame_buffer), v_in, v_out_setting, v_out, i_out, i_limit, power_enabled);
+    send_frame(frame_buffer, len);
+    return true;
+}
+
+static bool handle_get_name(void)
+{
+    uint32_t len = protocol_create_name_response(frame_buffer, sizeof(frame_buffer), device_name);
     send_frame(frame_buffer, len);
     return true;
 }
@@ -199,6 +207,9 @@ static void handle_frame(uint8_t *frame, uint32_t length)
                 success = 1; // Response will be sent below
                 ui_handle_ping();
                 break;
+            case cmd_get_name:
+                success = handle_get_name();
+                break;
             case cmd_set_vout:
                 success = handle_set_vout(payload, payload_len);
                 break;
@@ -224,7 +235,7 @@ static void handle_frame(uint8_t *frame, uint32_t length)
                 break;
         }
     }
-    if (cmd_status != cmd) { // The status command sends its own frame
+    if (cmd_status != cmd && cmd_get_name != cmd) { // The status command sends its own frame
         length = protocol_create_response(frame_buffer, sizeof(frame_buffer), cmd, success);
         if (length > 0 && cmd != cmd_response) {
             send_frame(frame_buffer, length);

@@ -5,6 +5,7 @@
 *.map
 *.bin
 *.pyc
+device_names.json
 fontwidth
 rgbtobgr565
 src/opendps/gfx/bgr565/*

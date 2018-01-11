@@ -105,6 +105,29 @@ uint32_t protocol_create_status_response(uint8_t *frame, uint32_t length, uint16
 	COPY_FRAME_RETURN();
 }
 
+uint32_t protocol_create_name(uint8_t *frame, uint32_t length)
+{
+	DECLARE_FRAME(MAX_FRAME_LENGTH);
+	PACK8(cmd_get_name);
+	FINISH_FRAME();
+	COPY_FRAME_RETURN();
+}
+
+uint32_t protocol_create_name_response(uint8_t *frame, uint32_t length, char *name)
+{
+	DECLARE_FRAME(MAX_FRAME_LENGTH);
+	PACK8(cmd_response | cmd_get_name);
+	PACK8(1); // Always success
+	uint8_t next;
+	do {
+		next = *name++;
+		PACK8(next);
+	}
+	while(next);
+	FINISH_FRAME();
+	COPY_FRAME_RETURN();
+}
+
 uint32_t protocol_create_wifi_status(uint8_t *frame, uint32_t length, wifi_status_t status)
 {
 	DECLARE_FRAME(MAX_FRAME_LENGTH);
@@ -124,7 +147,7 @@ uint32_t protocol_create_lock(uint8_t *frame, uint32_t length, uint8_t locked)
 }
 
 uint32_t protocol_create_ocp(uint8_t *frame, uint32_t length, uint16_t i_cut)
-{
+{   
 	DECLARE_FRAME(MAX_FRAME_LENGTH);
 	PACK8(cmd_ocp_event);
 	PACK16(i_cut);
